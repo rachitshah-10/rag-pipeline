@@ -221,3 +221,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project / Lab exclusions (databases, JS deps, local editor & agent files)
+.venv/
+node_modules/
+*.db
+*.sqlite*
+.vscode/
+.idea/
+.DS_Store
+.agents/
+.agent/
+.gemini/
+
