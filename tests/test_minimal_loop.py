@@ -16,18 +16,11 @@ class FakeEmbedder:
     """Deterministic offline embedder projecting text onto simple topic axes."""
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        """Convert each input text into a normalized 4D topic vector.
-
-        Args:
-            texts: List of text strings to embed.
-
-        Returns:
-            List of 4-dimensional L2-normalized embedding vectors.
-        """
+        """Map each text to an L2-normalized 4D topic vector."""
         vectors: list[list[float]] = []
         for text in texts:
             lowered = text.lower()
-            # Project text onto distinct topic dimensions so related texts cluster together.
+            # Project onto distinct topic axes so related texts cluster together.
             remote_score = sum(
                 1.0 for kw in ("remote", "remotely", "home", "telecommute", "week") if kw in lowered
             )
@@ -44,13 +37,13 @@ class FakeEmbedder:
 
 
 def test_fake_embedder_satisfies_embedder_protocol() -> None:
-    """Verify FakeEmbedder conforms to the Embedder runtime protocol."""
+    """Verify FakeEmbedder satisfies the Embedder protocol."""
     embedder = FakeEmbedder()
     assert isinstance(embedder, Embedder)
 
 
 def test_store_single_chunk_in_chromadb() -> None:
-    """Confirm one short text can be embedded and stored in a ChromaDB collection."""
+    """Confirm one short text embeds and stores in ChromaDB."""
     embedder = FakeEmbedder()
     collection = create_collection("test_single_chunk")
 
@@ -65,7 +58,7 @@ def test_store_single_chunk_in_chromadb() -> None:
 
 
 def test_retrieve_more_relevant_of_two_texts() -> None:
-    """Confirm retrieval ranks the relevant document ahead of an unrelated document."""
+    """Confirm similarity search ranks the relevant document first."""
     embedder = FakeEmbedder()
     collection = create_collection("test_two_chunks")
 
@@ -96,7 +89,7 @@ def test_retrieve_more_relevant_of_two_texts() -> None:
 
 
 def test_store_texts_rejects_mismatched_lengths() -> None:
-    """Confirm store_texts raises ValueError when ids and texts differ in length."""
+    """Confirm store_texts raises ValueError on mismatched ids and texts."""
     embedder = FakeEmbedder()
     collection = create_collection("test_mismatch")
 
@@ -110,7 +103,7 @@ def test_store_texts_rejects_mismatched_lengths() -> None:
 
 
 def test_run_minimal_loop_end_to_end_offline() -> None:
-    """Verify the full 2-step minimal loop returns expected counts and top match offline."""
+    """Verify run_minimal_loop returns expected counts and top match offline."""
     summary = run_minimal_loop(embedder=FakeEmbedder())
 
     assert summary["initial_count"] == 1
