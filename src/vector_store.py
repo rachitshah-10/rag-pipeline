@@ -106,3 +106,25 @@ class PolicyVectorStore:
                 )
             )
         return results
+
+    def get_all_chunks(self) -> list[RetrievedChunk]:
+        """Return every chunk and its metadata currently stored in the collection."""
+        total = self.count()
+        if total == 0:
+            return []
+
+        raw = self.collection.get(include=["documents", "metadatas"])
+        return [
+            RetrievedChunk(
+                chunk_id=chunk_id,
+                text=doc_text,
+                doc_name=str(meta.get("doc_name", "")),
+                section=str(meta.get("section", "")),
+                distance=0.0,
+            )
+            for chunk_id, doc_text, meta in zip(
+                raw["ids"],
+                raw["documents"],
+                raw["metadatas"],
+            )
+        ]
