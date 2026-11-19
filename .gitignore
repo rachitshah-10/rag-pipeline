@@ -233,4 +233,5 @@ node_modules/
 .agents/
 .agent/
 .gemini/
+chroma_db/
 
