@@ -6,6 +6,7 @@ from typing import Any
 
 from src.chunking import chunk_corpus
 from src.embeddings import SentenceTransformerEmbedder
+from src.hybrid_retrieval import hybrid_search
 from src.llm import AzureFoundryLLMClient, LLMClient
 from src.vector_store import PolicyVectorStore, RetrievedChunk
 
@@ -32,16 +33,27 @@ def build_rag_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
 
 
 class RAGPipeline:
-    """Basic retrieve-and-generate pipeline over indexed policy chunks."""
+    """Retrieve-and-generate pipeline over indexed policy chunks."""
 
-    def __init__(self, vector_store: PolicyVectorStore, llm_client: LLMClient) -> None:
-        """Bind a vector store retriever and an LLM generator."""
+    def __init__(
+        self,
+        vector_store: PolicyVectorStore,
+        llm_client: LLMClient,
+        use_hybrid: bool = True,
+    ) -> None:
+        """Bind a vector store retriever, an LLM generator, and retrieval mode."""
         self.vector_store = vector_store
         self.llm_client = llm_client
+        self.use_hybrid = use_hybrid
 
     def answer(self, question: str, top_k: int = 3) -> dict[str, Any]:
         """Retrieve top_k relevant chunks and generate a grounded LLM answer."""
-        retrieved = self.vector_store.search(query=question, top_k=top_k)
+        if self.use_hybrid:
+            retrieved = [
+                chunk for chunk, _ in hybrid_search(self.vector_store, query=question, top_k=top_k)
+            ]
+        else:
+            retrieved = self.vector_store.search(query=question, top_k=top_k)
         prompt = build_rag_prompt(question=question, chunks=retrieved)
         answer_text = self.llm_client.generate(prompt)
         return {
@@ -57,6 +69,7 @@ def run_sample_query(
     policies_dir: Path = DEFAULT_POLICIES_DIR,
     persist_dir: Path = DEFAULT_PERSIST_DIR,
     top_k: int = 3,
+    use_hybrid: bool = True,
 ) -> dict[str, Any]:
     """Index policy documents locally and answer one question using SentenceTransformers and Azure Foundry."""
     chunks = chunk_corpus(policies_dir)
@@ -68,24 +81,38 @@ def run_sample_query(
     )
     store.index_chunks(chunks)
 
-    pipeline = RAGPipeline(vector_store=store, llm_client=AzureFoundryLLMClient())
+    pipeline = RAGPipeline(
+        vector_store=store,
+        llm_client=AzureFoundryLLMClient(),
+        use_hybrid=use_hybrid,
+    )
     result = pipeline.answer(question=question, top_k=top_k)
     result["indexed_chunks"] = len(chunks)
     return result
 
 
 def main() -> None:
-    """CLI entry point to run the basic RAG pipeline on a policy question."""
-    parser = argparse.ArgumentParser(description="Query Northstar policy docs via basic RAG.")
+    """CLI entry point to run the RAG pipeline on a policy question."""
+    parser = argparse.ArgumentParser(description="Query Northstar policy docs via RAG.")
     parser.add_argument(
         "--question",
-        default="What is the domestic meal per diem and within how many days must receipts be submitted?",
+        required=True,
         help="Natural language policy question to answer.",
     )
     parser.add_argument("--top-k", type=int, default=3, help="Number of chunks to retrieve.")
+    parser.add_argument(
+        "--mode",
+        choices=("hybrid", "vector"),
+        default="hybrid",
+        help="Retrieval strategy to use (default: hybrid).",
+    )
     args = parser.parse_args()
 
-    result = run_sample_query(question=args.question, top_k=args.top_k)
+    result = run_sample_query(
+        question=args.question,
+        top_k=args.top_k,
+        use_hybrid=(args.mode == "hybrid"),
+    )
     print(f"Indexed {result['indexed_chunks']} policy chunks into {DEFAULT_PERSIST_DIR}")
     print(f"\nQuestion: {result['question']}\n")
     print("Top Retrieved Chunks:")
