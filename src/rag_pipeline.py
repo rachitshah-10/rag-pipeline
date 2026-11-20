@@ -8,6 +8,7 @@ from src.chunking import chunk_corpus
 from src.embeddings import SentenceTransformerEmbedder
 from src.hybrid_retrieval import hybrid_search
 from src.llm import AzureFoundryLLMClient, LLMClient
+from src.reranker import CrossEncoderReranker, Reranker
 from src.vector_store import PolicyVectorStore, RetrievedChunk
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -40,20 +41,31 @@ class RAGPipeline:
         vector_store: PolicyVectorStore,
         llm_client: LLMClient,
         use_hybrid: bool = True,
+        reranker: Reranker | None = None,
+        candidate_k: int = 10,
     ) -> None:
-        """Bind a vector store retriever, an LLM generator, and retrieval mode."""
+        """Bind a vector store retriever, LLM generator, and optional reranker."""
         self.vector_store = vector_store
         self.llm_client = llm_client
         self.use_hybrid = use_hybrid
+        self.reranker = reranker
+        self.candidate_k = candidate_k
 
     def answer(self, question: str, top_k: int = 3) -> dict[str, Any]:
-        """Retrieve top_k relevant chunks and generate a grounded LLM answer."""
+        """Retrieve relevant chunks, optionally rerank, and generate a grounded LLM answer."""
+        pool_k = max(self.candidate_k, top_k) if self.reranker is not None else top_k
         if self.use_hybrid:
-            retrieved = [
-                chunk for chunk, _ in hybrid_search(self.vector_store, query=question, top_k=top_k)
+            candidates = [
+                chunk for chunk, _ in hybrid_search(self.vector_store, query=question, top_k=pool_k)
             ]
         else:
-            retrieved = self.vector_store.search(query=question, top_k=top_k)
+            candidates = self.vector_store.search(query=question, top_k=pool_k)
+
+        retrieved = (
+            [chunk for chunk, _ in self.reranker.rerank(question, candidates, top_k=top_k)]
+            if self.reranker is not None
+            else candidates
+        )
         prompt = build_rag_prompt(question=question, chunks=retrieved)
         answer_text = self.llm_client.generate(prompt)
         return {
@@ -70,6 +82,7 @@ def run_sample_query(
     persist_dir: Path = DEFAULT_PERSIST_DIR,
     top_k: int = 3,
     use_hybrid: bool = True,
+    use_rerank: bool = True,
 ) -> dict[str, Any]:
     """Index policy documents locally and answer one question using SentenceTransformers and Azure Foundry."""
     chunks = chunk_corpus(policies_dir)
@@ -85,6 +98,7 @@ def run_sample_query(
         vector_store=store,
         llm_client=AzureFoundryLLMClient(),
         use_hybrid=use_hybrid,
+        reranker=CrossEncoderReranker() if use_rerank else None,
     )
     result = pipeline.answer(question=question, top_k=top_k)
     result["indexed_chunks"] = len(chunks)
@@ -106,12 +120,18 @@ def main() -> None:
         default="hybrid",
         help="Retrieval strategy to use (default: hybrid).",
     )
+    parser.add_argument(
+        "--no-rerank",
+        action="store_true",
+        help="Disable CrossEncoder reranking after initial retrieval.",
+    )
     args = parser.parse_args()
 
     result = run_sample_query(
         question=args.question,
         top_k=args.top_k,
         use_hybrid=(args.mode == "hybrid"),
+        use_rerank=not args.no_rerank,
     )
     print(f"Indexed {result['indexed_chunks']} policy chunks into {DEFAULT_PERSIST_DIR}")
     print(f"\nQuestion: {result['question']}\n")
