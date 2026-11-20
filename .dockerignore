@@ -1,0 +1,14 @@
+.git/
+.github/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+chroma_db/
+.env
+.env.*
+!.env.example
+.DS_Store
+tests/
+DATA_QUALITY_DIAGNOSIS.md
+README.md
