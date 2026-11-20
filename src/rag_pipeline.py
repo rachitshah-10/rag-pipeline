@@ -16,6 +16,26 @@ DEFAULT_POLICIES_DIR = PROJECT_ROOT / "data" / "policies"
 DEFAULT_PERSIST_DIR = PROJECT_ROOT / "chroma_db"
 
 
+def format_sources(chunks: list[RetrievedChunk]) -> list[str]:
+    """Deduplicate retrieved chunk citations as 'doc_name | section' preserving rank order."""
+    seen: set[str] = set()
+    sources: list[str] = []
+    for chunk in chunks:
+        label = f"{chunk.doc_name} | {chunk.section}"
+        if label not in seen:
+            seen.add(label)
+            sources.append(label)
+    return sources
+
+
+def format_answer_with_sources(answer: str, sources: list[str]) -> str:
+    """Append a structured Sources section beneath the generated answer."""
+    if not sources:
+        return f"{answer}\n\nSources:\n  - None"
+    bullets = "\n".join(f"  - {src}" for src in sources)
+    return f"{answer}\n\nSources:\n{bullets}"
+
+
 def build_rag_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
     """Format retrieved policy excerpts and the user question into a grounded LLM prompt."""
     context_blocks = [
@@ -71,6 +91,7 @@ class RAGPipeline:
         return {
             "question": question,
             "answer": answer_text,
+            "sources": format_sources(retrieved),
             "retrieved_chunks": retrieved,
             "prompt": prompt,
         }
@@ -141,7 +162,8 @@ def main() -> None:
             f"  #{rank} [{chunk.doc_name} | {chunk.section}] "
             f"(distance={chunk.distance:.4f}): {chunk.text[:120]}..."
         )
-    print(f"\nGenerated Answer:\n{result['answer']}")
+    print("\nGenerated Answer:")
+    print(format_answer_with_sources(result["answer"], result["sources"]))
 
 
 if __name__ == "__main__":
